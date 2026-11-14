@@ -1,98 +1,73 @@
 # Simmer
 
-Menüleisten-App für macOS 14+, die das Laden des Akkus begrenzt und steuert: Ladelimit mit
-Sailing Mode, Entladen trotz Netzteil, Top Up, Hitzeschutz, Kalibrierung, Zeitpläne,
-Kurzbefehle und Live-Telemetrie. Apple Silicon und Intel.
+Menu bar app for macOS 14+ that limits and controls battery charging: charge limit with Sailing Mode, discharging while plugged in, Top Up, heat protection, calibration, schedules, Shortcuts, and live telemetry. Supports Apple Silicon and Intel.
 
-## Bauen
+## Building
 
 ```bash
-./build.sh          # Release-Build, ad-hoc signiert → build/Simmer.app
-./build.sh test     # Unit-Tests (SimmerCore)
-./build.sh probe    # nur lesend: SMC-Keys und Telemetrie dieses Macs prüfen
-./build.sh run      # bauen und starten
+./build.sh          # Release build, ad-hoc signed → build/Simmer.app
+./build.sh test     # Unit tests (SimmerCore)
+./build.sh probe    # read-only: check SMC keys and telemetry of this Mac
+./build.sh run      # build and run
 ```
 
-Alternativ `Simmer.xcodeproj` in Xcode öffnen (Scheme „Simmer“). Für eine eigene Signatur:
+Alternatively, open `Simmer.xcodeproj` in Xcode (Scheme “Simmer”). For custom code signing:
 `SIGN_IDENTITY="Developer ID Application: …" ./build.sh`.
 
-## Aufbau
+## Architecture
 
-| Pfad | Inhalt |
+| Path | Contents |
 |---|---|
-| `SimmerCore/` | Swift Package mit der gesamten Logik: SMC-Wrapper, Hardware-Schicht, Telemetrie, State-Machine, Zeitpläne, Einstellungen, Helper-Logik, XPC-Client, App-Modell. Dazu `simmerctl` (Diagnose-CLI) und die Tests. |
-| `Helper/` | Privilegierter Daemon `com.simmer.helper` (root, XPC). |
-| `App/` | SwiftUI-Oberfläche (Menüleisten-Popover, Einstellungen) und App Intents. |
-| `Support/` | LaunchDaemon-Plist für `SMAppService`. |
+| `SimmerCore/` | Swift Package containing the entire core logic: SMC wrapper, hardware layer, telemetry, state machine, schedules, settings, helper logic, XPC client, and app model. Also includes `simmerctl` (diagnostic CLI) and tests. |
+| `Helper/` | Privileged daemon `com.simmer.helper` (root, XPC). |
+| `App/` | SwiftUI interface (menu bar popover, settings) and App Intents. |
+| `Support/` | LaunchDaemon plist for `SMAppService`. |
 
-Die App läuft ohne Root. Sie liest Telemetrie selbst (kein Root nötig), berechnet pro Tick
-den gewünschten Hardware-Zustand (`ChargeCommand`) und schickt ihn per XPC an den Helper.
-Der Helper kennt nur diese semantischen, begrenzten Befehle – beliebige SMC-Keys lassen sich
-über XPC nicht schreiben.
+The app runs without root privileges. It reads telemetry directly (no root required), calculates the desired hardware state (`ChargeCommand`) on each tick, and sends it to the helper via XPC. The helper only understands these semantic, restricted commands—arbitrary SMC keys cannot be written over XPC.
 
-## Helper installieren
+## Installing the Helper
 
-In der App unter **Einstellungen → Helper**:
+In the app under **Settings → Helper**:
 
-- **Install (Login Items)** – `SMAppService`; einmalige Freigabe in den Systemeinstellungen.
-  Setzt eine vollwertige Signatur voraus; bei ad-hoc signierten Builds kann macOS den Start
-  des Daemons verweigern.
-- **Install with administrator password** – zuverlässiger Weg für lokale Builds: kopiert den
-  Helper nach `/Library/PrivilegedHelperTools` und lädt einen LaunchDaemon (eine
-  Passwortabfrage). Deinstallation über denselben Tab.
+- **Install (Login Items)** – `SMAppService`; requires one-time approval in System Settings.
+  Requires a full code signature; macOS may refuse to launch the daemon for ad-hoc signed builds.
+- **Install with administrator password** – reliable option for local builds: copies the
+  helper to `/Library/PrivilegedHelperTools` and loads a LaunchDaemon (single password prompt). Can be uninstalled from the same tab.
 
-Ohne Helper zeigt Simmer nur Telemetrie. Mit **Dry run** werden alle SMC-Schreibzugriffe
-im Prozess simuliert und protokolliert – so lässt sich alles gefahrlos ausprobieren.
+Without the helper, Simmer only displays telemetry. With **Dry run** enabled, all SMC writes are simulated and logged in-process—allowing you to safely test everything.
 
-## SMC-Keys
+## SMC Keys
 
-Die Zuordnung wird zur Laufzeit über das Vorhandensein der Keys bestimmt, nie über die
-macOS-Version (`simmerctl caps` zeigt das Ergebnis).
+Key mapping is determined at runtime based on key availability, never via the macOS version (`simmerctl caps` displays the result).
 
-| Funktion | Key(s) | Werte |
+| Function | Key(s) | Values |
 |---|---|---|
-| Laden sperren (Firmware-Band, macOS 27) | `bfF0`, `bfD0`, `bfE0` | `bfF0`: 0 = aus, 2 = aktiv; `bfD0`/`bfE0`: obere/untere Grenze in %, Little Endian |
-| Laden sperren (Apple Silicon, neuer) | `CHTE` | `00000000` laden, `01000000` sperren |
-| Laden sperren (älter, auch Intel) | `CH0B` + `CH0C` | `00` laden, `02` sperren |
-| Netzteil trennen (Entladen) | `CHIE` / `CH0J` / `CH0I` | `CHIE`: `08` getrennt; `CH0J`, `CH0I`: `01` getrennt; `00` verbunden |
-| Limit ausgeschaltet/im Ruhezustand | `bfF0…` / `BCLM` (Intel, %) / `CHWA` (fest 80 %) | |
-| MagSafe-LED | `ACLC` | `00` System, `01` aus, `03` grün, `04` orange, `05`–`07` Blinken |
-| Akkutemperatur | `TB0T`, `TB1T`, `TB2T` | `flt ` (Apple Silicon) bzw. `sp78` (Intel) |
+| Inhibit charging (firmware band, macOS 27) | `bfF0`, `bfD0`, `bfE0` | `bfF0`: 0 = off, 2 = active; `bfD0`/`bfE0`: upper/lower limit in %, little-endian |
+| Inhibit charging (Apple Silicon, newer) | `CHTE` | `00000000` charge, `01000000` inhibit |
+| Inhibit charging (older, including Intel) | `CH0B` + `CH0C` | `00` charge, `02` inhibit |
+| Disconnect power adapter (discharge) | `CHIE` / `CH0J` / `CH0I` | `CHIE`: `08` disconnected; `CH0J`, `CH0I`: `01` disconnected; `00` connected |
+| Limit while shut down / asleep | `bfF0…` / `BCLM` (Intel, %) / `CHWA` (fixed 80%) | |
+| MagSafe LED | `ACLC` | `00` system, `01` off, `03` green, `04` orange, `05`–`07` blinking |
+| Battery temperature | `TB0T`, `TB1T`, `TB2T` | `flt ` (Apple Silicon) or `sp78` (Intel) |
 
-**Gesperrte Keys (macOS 27):** Auf aktueller Firmware lehnt der SMC Zugriffe auf
-`bfF0/bfD0/bfE0` auch für root ab (`kIOReturnNotPrivileged`, vermutlich Entitlement-Prüfung).
-Solche Keys gelten als nicht nutzbar. Bleibt dann nur ein Netzteil-Key (`CHIE`), hält Simmer
-das Limit per **Adapter-Cycling**: Am Limit wird das Netzteil elektrisch getrennt, der Mac
-läuft vom Akku bis zur Sailing-Untergrenze und lädt dann wieder bis zum Limit. Das ist kein
-echter Bypass – der Akku wird im Sailing-Fenster zyklisiert. In diesem Modus gibt es kein
-Limit im Ruhezustand oder ausgeschalteten Zustand (im Ruhezustand wird normal geladen), und
-Hitzeschutz sowie Kalibrier-Ruhephase laufen ebenfalls vom Akku.
+**Restricted Keys (macOS 27):** On current firmware, the SMC rejects access to `bfF0/bfD0/bfE0` even for root (`kIOReturnNotPrivileged`, presumably due to an entitlement check). Such keys are treated as unusable. If only a power adapter key (`CHIE`) remains available, Simmer maintains the limit via **Adapter Cycling**: upon reaching the limit, the power adapter is electrically disconnected, the Mac runs on battery power down to the Sailing lower bound, and then charges back up to the limit. This is not a true hardware bypass—the battery cycles within the Sailing window. In this mode, there is no charge limit while asleep or shut down (the battery charges normally during sleep), and heat protection as well as calibration rest phases also run on battery power.
 
-Quellen für die Werte: die Open-Source-Projekte `battery` (actuallymentor) und `batt`
-(charlie0129), abgeglichen mit einer lesenden Probe auf einem MacBook Pro M5 Pro
-(macOS 27.2): dort existieren `bfF0/bfD0/bfE0`, `CHIE`, `CH0J`, `ACLC` und `TB0T–TB2T`;
-`CHTE`, `CH0B/C`, `CHWA` und `BCLM` fehlen. Die `bf…`-Keys sind dort auch für root gesperrt,
-Simmer nutzt auf diesem Gerät also Adapter-Cycling über `CHIE`. Spannung, Strom, Zyklen und Kapazitäten kommen aus `AppleSmartBattery` (IORegistry).
+Sources for these values: the open-source projects `battery` (actuallymentor) and `batt` (charlie0129), cross-referenced with a read-only probe on a MacBook Pro M5 Pro (macOS 27.2): on that machine, `bfF0/bfD0/bfE0`, `CHIE`, `CH0J`, `ACLC`, and `TB0T–TB2T` are present, while `CHTE`, `CH0B/C`, `CHWA`, and `BCLM` are absent. Because the `bf…` keys are locked even for root on that device, Simmer falls back to Adapter Cycling via `CHIE`. Voltage, current, cycle count, and capacities are read from `AppleSmartBattery` (IORegistry).
 
-## Sicherheit
+## Safety
 
-- **Fail-Safe:** Der Helper setzt beim Start, bei SIGTERM und beim Wegfall der App-Verbindung
-  auf Standardverhalten zurück (Netzteil verbunden, Laden erlaubt, LED System). Ein Watchdog
-  löst dasselbe aus, wenn die App 120 s keinen Befehl mehr sendet.
-- Ist „Beim Beenden zurücksetzen“ ausgeschaltet, bleibt der Ladezustand bestehen – ein
-  erzwungenes Entladen wird trotzdem immer beendet.
-- Vor dem Ruhezustand wird das Netzteil immer verbunden; im Limiter-Modus wird (optional) das
-  Laden gesperrt bzw. das Limit an die Firmware übergeben.
-- SMC-Keys werden beim Neustart des Macs von der Firmware zurückgesetzt (außer den
-  ausdrücklich persistenten Limit-Keys).
+- **Fail-Safe:** Upon startup, receiving `SIGTERM`, or losing connection to the app, the helper resets to default behavior (power adapter connected, charging enabled, system-controlled LED). A watchdog triggers the same reset if the app stops sending commands for 120 seconds.
+- If “Reset on quit” is disabled, the current charge state is preserved—though forced discharging is always stopped.
+- Before entering sleep, the power adapter is always reconnected; in limiter mode, charging is (optionally) inhibited or the limit is handed off to the firmware.
+- SMC keys are reset by the firmware when the Mac restarts (except for explicitly persistent limit keys).
 
-## Diagnose
+## Diagnostics
 
 ```bash
 cd SimmerCore
-swift run simmerctl probe      # bekannte Keys und ihre Werte
-swift run simmerctl caps       # ermittelte Zuordnung
-swift run simmerctl battery    # ein Telemetrie-Snapshot
-swift run simmerctl simulate   # Steuerbefehle gegen die Dry-Run-SMC
-swift run simmerctl keys CH bf # alle Keys mit diesen Präfixen
+swift run simmerctl probe      # known keys and their values
+swift run simmerctl caps       # detected key mapping
+swift run simmerctl battery    # a single telemetry snapshot
+swift run simmerctl simulate   # test control commands against the dry-run SMC
+swift run simmerctl keys CH bf # all keys matching these prefixes
 ```
