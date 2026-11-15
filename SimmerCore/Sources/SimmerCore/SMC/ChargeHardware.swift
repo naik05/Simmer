@@ -6,6 +6,9 @@ public struct HardwareCapabilities: Codable, Sendable, Equatable {
         /// `bfF0`/`bfD0`/`bfE0`: the firmware holds the battery inside a band (macOS 27 era).
         case firmwareBand
         case chte, ch0bCh0c, bclm
+        /// macOS's own charge limit, steered through PowerUIAgent (macOS 27). At the limit
+        /// the Mac runs from the adapter; the limit also holds during sleep.
+        case nativeLimit
         /// No usable charging-inhibit key (newer firmware gates them even for root): the
         /// limit is held by electrically disconnecting the adapter, so the Mac runs from
         /// its battery between the limit and the resume level instead of bypassing it.
@@ -24,6 +27,8 @@ public struct HardwareCapabilities: Codable, Sendable, Equatable {
         case bclm
         /// Apple Silicon `CHWA`: fixed 80 % limit only.
         case chwa
+        /// macOS's own charge limit (any target, upper bound only).
+        case nativeLimit
         case none
     }
 
@@ -54,6 +59,8 @@ public struct HardwareCapabilities: Codable, Sendable, Equatable {
     public var canPersistLimit: Bool { hardwareLimit != .none }
     /// `true` when "not charging" can only be achieved by running from the battery.
     public var holdsByDischarging: Bool { charging == .adapterCycling }
+    /// `true` when the system itself keeps enforcing the limit, also while asleep.
+    public var limitEnforcedBySystem: Bool { charging == .nativeLimit }
 
     public var summary: String {
         """
@@ -116,13 +123,28 @@ public struct ChargeCommand: Codable, Sendable, Equatable {
 public final class ChargeHardware: Sendable {
     public let smc: any SMCInterface
     public let capabilities: HardwareCapabilities
+    private let nativeLimit: (any NativeLimitControlling)?
+    private let batteryPercent: @Sendable () -> Int?
 
-    public init(smc: any SMCInterface, architecture: HostArchitecture = HostInfo.architecture) {
+    /// - Parameters:
+    ///   - nativeLimit: the system charge limit, when this OS supports steering it. Used
+    ///     only if no SMC charging key is usable.
+    ///   - batteryPercent: current state of charge; needed to stop charging *now* through
+    ///     the native limit (the limit is set to the current level).
+    public init(
+        smc: any SMCInterface, architecture: HostArchitecture = HostInfo.architecture,
+        nativeLimit: (any NativeLimitControlling)? = nil,
+        batteryPercent: @escaping @Sendable () -> Int? = { nil }
+    ) {
         self.smc = smc
-        capabilities = Self.detect(smc: smc, architecture: architecture)
+        self.nativeLimit = nativeLimit
+        self.batteryPercent = batteryPercent
+        capabilities = Self.detect(smc: smc, architecture: architecture, hasNativeLimit: nativeLimit != nil)
     }
 
-    static func detect(smc: any SMCInterface, architecture: HostArchitecture) -> HardwareCapabilities {
+    static func detect(
+        smc: any SMCInterface, architecture: HostArchitecture, hasNativeLimit: Bool = false
+    ) -> HardwareCapabilities {
         let hasBand = smc.hasKey(SMCKeys.bfF0) && smc.hasKey(SMCKeys.bfD0) && smc.hasKey(SMCKeys.bfE0)
         let hasBCLM = architecture == .intel && smc.hasKey(SMCKeys.bclm)
 
@@ -139,6 +161,7 @@ public final class ChargeHardware: Sendable {
             else if smc.hasKey(SMCKeys.chte) { .chte }
             else if smc.hasKey(SMCKeys.ch0b), smc.hasKey(SMCKeys.ch0c) { .ch0bCh0c }
             else if hasBCLM { .bclm }
+            else if hasNativeLimit { .nativeLimit }
             else if adapter != .none { .adapterCycling }
             else { .none }
 
@@ -146,6 +169,7 @@ public final class ChargeHardware: Sendable {
             if hasBand { .firmwareBand }
             else if hasBCLM { .bclm }
             else if smc.hasKey(SMCKeys.chwa) { .chwa }
+            else if hasNativeLimit { .nativeLimit }
             else { .none }
 
         return HardwareCapabilities(
@@ -193,6 +217,8 @@ public final class ChargeHardware: Sendable {
             try smc.write(SMCKeys.bclm, bytes: [enabled ? 100 : UInt8(max(hold.clamped.upper, 20))])
         case .adapterCycling:
             try setAdapter(enabled: enabled)
+        case .nativeLimit:
+            try setNativeLimit(chargingAllowed: enabled, hold: hold)
         case .none:
             throw SMCError.unsupported("charging control")
         }
@@ -206,7 +232,7 @@ public final class ChargeHardware: Sendable {
         case .ch0bCh0c: !(smc.readIfPresent(SMCKeys.ch0b)?.isZero ?? true)
         case .bclm: (smc.readIfPresent(SMCKeys.bclm)?.bytes.first ?? 100) < 100
         case .adapterCycling: isAdapterDisabled()
-        case .none: false
+        case .nativeLimit, .none: false
         }
     }
 
@@ -262,6 +288,9 @@ public final class ChargeHardware: Sendable {
         case .chwa:
             try smc.write(SMCKeys.chwa, bytes: [band.upper < 100 ? 0x01 : 0x00])
             return band.upper < 100 ? 80 : 100
+        case .nativeLimit:
+            if band.upper >= 100 { try nativeLimit?.disable() } else { try nativeLimit?.setLimit(band.upper) }
+            return band.upper
         case .none:
             throw SMCError.unsupported("hardware charge limit")
         }
@@ -272,6 +301,7 @@ public final class ChargeHardware: Sendable {
         case .firmwareBand: try smc.write(SMCKeys.bfF0, bytes: littleEndian(0x00, for: SMCKeys.bfF0))
         case .bclm: try smc.write(SMCKeys.bclm, bytes: [100])
         case .chwa: try smc.write(SMCKeys.chwa, bytes: [0x00])
+        case .nativeLimit: try nativeLimit?.restoreOriginal()
         case .none: break
         }
     }
@@ -288,7 +318,10 @@ public final class ChargeHardware: Sendable {
             do { try body() } catch { if firstError == nil { firstError = error } }
         }
         if capabilities.adapter != .none { attempt { try setAdapter(enabled: true) } }
-        if capabilities.charging != .none { attempt { try setCharging(enabled: true) } }
+        // The native limit is put back by the hardware-limit step below, not "enabled".
+        if capabilities.charging != .none, capabilities.charging != .nativeLimit {
+            attempt { try setCharging(enabled: true) }
+        }
         if capabilities.hasMagSafeLED { attempt { try setLED(.system) } }
         if let band, capabilities.hardwareLimit != .none {
             attempt { try setHardwareLimit(band) }
@@ -299,6 +332,23 @@ public final class ChargeHardware: Sendable {
     }
 
     // MARK: Helpers
+
+    /// Charging allowed: the system limit is the hold band's upper bound (macOS stops there
+    /// by itself, also during sleep), or off for 100 %. Charging not allowed: the limit is
+    /// set to the current level, so charging stops now and the Mac runs from the adapter
+    /// without macOS draining the battery down to a lower target.
+    private func setNativeLimit(chargingAllowed: Bool, hold: ChargeBand) throws {
+        guard let nativeLimit else { throw SMCError.unsupported("native charge limit") }
+        var target = hold.clamped.upper
+        if !chargingAllowed, let percent = batteryPercent() {
+            target = max(percent, 10)
+        }
+        if chargingAllowed, target >= 100 {
+            try nativeLimit.disable()
+        } else {
+            try nativeLimit.setLimit(min(target, 99))
+        }
+    }
 
     private func writeFirmwareBand(_ band: ChargeBand) throws {
         let band = band.clamped

@@ -73,7 +73,9 @@ public final class BatteryReader: Sendable {
             cycleCount: int("CycleCount") ?? 0,
             designCapacity: design,
             maxCapacity: rawMax,
-            timeRemaining: remaining
+            timeRemaining: remaining,
+            currentCapacity: int("AppleRawCurrentCapacity") ?? int("AppleRawCurrentCapacity", in: batteryData)
+                ?? (reportedMax > 100 ? current : 0)
         )
     }
 }

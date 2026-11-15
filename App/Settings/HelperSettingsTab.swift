@@ -150,6 +150,7 @@ struct HelperSettingsTab: View {
         case .ch0bCh0c: "CH0B and CH0C"
         case .bclm: "BCLM"
         case .adapterCycling: "Adapter cycling (holds the limit on battery power)"
+        case .nativeLimit: "macOS charge limit (holds on adapter power)"
         case .none: "Not available"
         }
     }
@@ -168,6 +169,7 @@ struct HelperSettingsTab: View {
         case .firmwareBand: "Firmware charge band (any limit)"
         case .bclm: "BCLM (any limit)"
         case .chwa: "CHWA (fixed 80 %)"
+        case .nativeLimit: "macOS charge limit (any limit)"
         case .none: "Not available"
         }
     }

@@ -15,6 +15,10 @@ struct PopoverView: View {
                 HelperBanner()
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
+            if model.helperNeedsUpdate {
+                HelperUpdateBanner()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             if let error = model.lastError {
                 ErrorBanner(message: error)
                     .transition(.opacity)

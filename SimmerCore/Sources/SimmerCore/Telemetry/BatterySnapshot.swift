@@ -20,6 +20,8 @@ public struct BatterySnapshot: Sendable, Equatable, Codable {
     public var cycleCount: Int
     public var designCapacity: Int
     public var maxCapacity: Int
+    /// Charge currently in the battery in mAh, `0` when unknown.
+    public var currentCapacity: Int
     /// Minutes until full/empty as estimated by the system, when available.
     public var timeRemaining: Int?
 
@@ -27,8 +29,9 @@ public struct BatterySnapshot: Sendable, Equatable, Codable {
         percent: Int, isPluggedIn: Bool, isCharging: Bool = false, isFullyCharged: Bool = false,
         temperatureC: Double? = 30, voltage: Double = 12, amperage: Double = 0,
         adapterWatts: Double? = nil, systemPowerIn: Double? = nil, cycleCount: Int = 0,
-        designCapacity: Int = 0, maxCapacity: Int = 0, timeRemaining: Int? = nil
+        designCapacity: Int = 0, maxCapacity: Int = 0, timeRemaining: Int? = nil, currentCapacity: Int = 0
     ) {
+        self.currentCapacity = currentCapacity
         self.percent = percent
         self.isPluggedIn = isPluggedIn
         self.isCharging = isCharging
@@ -51,6 +54,20 @@ public struct BatterySnapshot: Sendable, Equatable, Codable {
     public var healthPercent: Int? {
         guard designCapacity > 0, maxCapacity > 0 else { return nil }
         return min(100, Int((Double(maxCapacity) / Double(designCapacity) * 100).rounded()))
+    }
+
+    /// Estimated minutes until the battery reaches `target` percent at the present current,
+    /// or `nil` when it is not moving towards the target. The system's own estimate only
+    /// knows "until full" and "until empty", not a charge limit. Linear, so it runs short
+    /// near 100 % where charging tapers off.
+    public func minutes(toReach target: Int) -> Int? {
+        guard maxCapacity > 0, abs(amperage) >= 0.05 else { return nil }
+        let targetCapacity = Double(target) / 100 * Double(maxCapacity)
+        let present = currentCapacity > 0 ? Double(currentCapacity) : Double(percent) / 100 * Double(maxCapacity)
+        let missing = targetCapacity - present
+        // Charging must head up to the target, discharging down to it.
+        guard missing * amperage > 0 else { return nil }
+        return max(1, Int((missing / (amperage * 1000) * 60).rounded(.up)))
     }
 
     public var temperatureF: Double? { temperatureC.map { $0 * 9 / 5 + 32 } }

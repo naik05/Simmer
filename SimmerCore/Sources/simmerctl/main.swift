@@ -52,7 +52,9 @@ case "keys":
 case "debug":
     debugKeyInfo(openSMC(), Array(arguments.dropFirst()))
 case "caps":
-    let hardware = ChargeHardware(smc: openSMC())
+    // Mirrors the helper: the macOS charge limit is used when no SMC charging key is usable.
+    let native: (any NativeLimitControlling)? = NativeChargeLimit.isSupportedOnThisSystem ? NativeChargeLimit() : nil
+    let hardware = ChargeHardware(smc: openSMC(), nativeLimit: native)
     print(hardware.capabilities.summary)
 case "battery":
     let reader = BatteryReader(smc: try? AppleSMC())
