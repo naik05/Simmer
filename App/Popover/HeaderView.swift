@@ -61,12 +61,41 @@ struct HeaderView: View {
     }
 
     private var remainingText: String? {
-        guard let snapshot = model.snapshot, let minutes = snapshot.timeRemaining, minutes > 0 else { return nil }
-        switch model.activity {
-        case .charging: return "\(Format.duration(minutes: minutes)) until full"
-        case .onBattery, .discharging: return "\(Format.duration(minutes: minutes)) remaining"
-        default: return nil
+        guard let snapshot = model.snapshot, model.connection.isUsable || model.activity == .onBattery else {
+            return nil
         }
+        let config = model.settings.engine
+        let system = snapshot.timeRemaining.flatMap { $0 > 0 ? $0 : nil }
+        switch model.activity {
+        case .charging:
+            // macOS only estimates "until full"; while a limit applies, estimate to the limit.
+            let target = chargeTarget(config)
+            if target >= 100 { return system.map { "\(Format.duration(minutes: $0)) until full" } }
+            return snapshot.minutes(toReach: target).map {
+                "About \(Format.duration(minutes: $0)) until \(Format.percent(target))"
+            }
+        case .discharging:
+            let target = dischargeTarget(config)
+            return snapshot.minutes(toReach: target).map {
+                "About \(Format.duration(minutes: $0)) until \(Format.percent(target))"
+            }
+        case .onBattery:
+            return system.map { "\(Format.duration(minutes: $0)) remaining" }
+        default:
+            return nil
+        }
+    }
+
+    private func chargeTarget(_ config: EngineConfig) -> Int {
+        switch model.engineState.mode {
+        case .topUp, .calibration(.chargeToFull): 100
+        default: config.effectiveLimit
+        }
+    }
+
+    private func dischargeTarget(_ config: EngineConfig) -> Int {
+        if case .calibration = model.engineState.mode { return config.calibrationLowPercent }
+        return config.effectiveLimit
     }
 }
 
