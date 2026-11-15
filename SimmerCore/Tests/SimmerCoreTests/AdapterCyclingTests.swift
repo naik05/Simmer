@@ -15,6 +15,11 @@ final class AdapterCyclingTests: XCTestCase {
         XCTAssertEqual(hardware.capabilities.hardwareLimit, .none)
         XCTAssertTrue(hardware.capabilities.holdsByDischarging)
         XCTAssertFalse(hardware.capabilities.canPersistLimit)
+
+        let summary = hardware.capabilities.summary
+        XCTAssertTrue(summary.contains("architecture:    appleSilicon"))
+        XCTAssertTrue(summary.contains("charging:        adapterCycling"))
+        XCTAssertTrue(summary.contains("adapter:         chie"))
     }
 
     func testGatedFirmwareBandFallsBackToAdapterCycling() {
@@ -46,5 +51,55 @@ final class AdapterCyclingTests: XCTestCase {
         try hardware.apply(ChargeCommand(chargingAllowed: false, hold: ChargeBand(upper: 80, lower: 75)))
         try hardware.resetToDefaults()
         XCTAssertFalse(hardware.isAdapterDisabled())
+    }
+
+    func testOlderAdapterKeysAreDetected() {
+        // Machine with ch0j
+        let smc0j = DryRunSMC(keys: [
+            SMCValue(key: SMCKeys.ch0j, type: "ui8 ", bytes: [0x00])
+        ])
+        let hw0j = ChargeHardware(smc: smc0j, architecture: .appleSilicon)
+        XCTAssertEqual(hw0j.capabilities.adapter, .ch0j)
+        XCTAssertEqual(hw0j.capabilities.charging, .adapterCycling)
+
+        // Machine with ch0i
+        let smc0i = DryRunSMC(keys: [
+            SMCValue(key: SMCKeys.ch0i, type: "ui8 ", bytes: [0x00])
+        ])
+        let hw0i = ChargeHardware(smc: smc0i, architecture: .appleSilicon)
+        XCTAssertEqual(hw0i.capabilities.adapter, .ch0i)
+        XCTAssertEqual(hw0i.capabilities.charging, .adapterCycling)
+    }
+
+    func testAdapterCyclingHoldingScenarioTickByTick() {
+        // Simulates the full adapter cycling lifecycle in ChargeEngine
+        var sim = EngineSimulation(config: engineConfig(limit: 80, buffer: 5))
+        sim.plugged = true
+
+        // 1. Charges up to 80 %
+        let chargingOutput = sim.tick(78)
+        XCTAssertTrue(chargingOutput.command.chargingAllowed)
+        XCTAssertEqual(chargingOutput.activity, .charging)
+
+        // 2. Hits limit 80 % -> engine switches to holding
+        let limitOutput = sim.tick(80)
+        XCTAssertFalse(limitOutput.command.chargingAllowed)
+        XCTAssertEqual(limitOutput.activity, .holding)
+        XCTAssertTrue(sim.events.contains(.limitReached(80)))
+
+        // 3. In Adapter Cycling mode, the adapter is disconnected and drains to resumeLevel (75 %)
+        let sailingOutput = sim.tick(77)
+        XCTAssertFalse(sailingOutput.command.chargingAllowed)
+        XCTAssertEqual(sailingOutput.activity, .holding)
+
+        // 4. Hits resumeLevel (75 %) -> charging turns back on
+        let resumeOutput = sim.tick(75)
+        XCTAssertTrue(resumeOutput.command.chargingAllowed)
+        XCTAssertEqual(resumeOutput.activity, .charging)
+
+        // 5. Charges back up to 80 %
+        let topOutput = sim.tick(80)
+        XCTAssertFalse(topOutput.command.chargingAllowed)
+        XCTAssertEqual(topOutput.activity, .holding)
     }
 }

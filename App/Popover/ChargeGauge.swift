@@ -6,23 +6,32 @@ struct ChargeGauge: View {
     var limit: Int
     var tint: Color
     var showsLimit = true
+    var isLimiterEnabled = true
     var diameter: CGFloat = 84
     var lineWidth: CGFloat = 7
 
     var body: some View {
         ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.1), lineWidth: lineWidth)
-            Circle()
-                .trim(from: 0, to: fraction)
-                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.1), lineWidth: lineWidth)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                if showsLimit {
+                    // Cut a gap into the ring so the limit tick reads clearly on top of
+                    // the arc as well as on the empty track.
+                    limitTick(width: 8, extraHeight: 4)
+                        .blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
             if showsLimit {
-                Capsule()
-                    .fill(Color.primary)
-                    .frame(width: 3, height: lineWidth + 6)
-                    .offset(y: -(diameter - lineWidth) / 2)
-                    .rotationEffect(.degrees(Double(limit) * 3.6))
+                // Limiter off: the tick stays (and follows the slider) as a quieter
+                // preview of the limit that would apply.
+                limitTick(width: 3, extraHeight: 6)
+                    .foregroundStyle(isLimiterEnabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.secondary))
                     .transition(.opacity)
             }
             HStack(alignment: .firstTextBaseline, spacing: 1) {
@@ -39,11 +48,19 @@ struct ChargeGauge: View {
         }
         .frame(width: diameter, height: diameter)
         .animation(.smooth(duration: 0.5), value: fraction)
-        .animation(.smooth(duration: 0.35), value: limit)
+        .animation(.smooth(duration: 0.2), value: limit)
+        .animation(.smooth(duration: 0.25), value: isLimiterEnabled)
         .animation(.smooth(duration: 0.35), value: showsLimit)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Battery charge")
         .accessibilityValue(accessibilityValue)
+    }
+
+    private func limitTick(width: CGFloat, extraHeight: CGFloat) -> some View {
+        Capsule()
+            .frame(width: width, height: lineWidth + extraHeight)
+            .offset(y: -(diameter - lineWidth) / 2)
+            .rotationEffect(.degrees(Double(limit) * 3.6))
     }
 
     private var fraction: Double {
@@ -52,6 +69,9 @@ struct ChargeGauge: View {
 
     private var accessibilityValue: String {
         guard let percent else { return "Unknown" }
-        return showsLimit ? "\(percent) percent, limit \(limit) percent" : "\(percent) percent"
+        guard showsLimit else { return "\(percent) percent" }
+        return isLimiterEnabled
+            ? "\(percent) percent, limit \(limit) percent"
+            : "\(percent) percent, limit \(limit) percent (limiter off)"
     }
 }
