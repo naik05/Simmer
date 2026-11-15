@@ -17,6 +17,12 @@ struct SettingsView: View {
             SchedulesSettingsTab()
                 .tabItem { Label("Schedules", systemImage: "calendar.badge.clock") }
                 .tag(SettingsTab.schedules)
+            HistorySettingsTab()
+                .tabItem { Label("History", systemImage: "chart.xyaxis.line") }
+                .tag(SettingsTab.history)
+            HealthSettingsTab()
+                .tabItem { Label("Health", systemImage: "heart") }
+                .tag(SettingsTab.health)
             HelperSettingsTab()
                 .tabItem { Label("Helper", systemImage: "wrench.and.screwdriver") }
                 .tag(SettingsTab.helper)
@@ -32,6 +38,8 @@ struct SettingsView: View {
         case .general: 640
         case .behavior: 430
         case .schedules: 520
+        case .history: 720
+        case .health: 620
         case .helper: 640
         case .about: 400
         }

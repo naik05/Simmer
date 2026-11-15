@@ -34,6 +34,16 @@ struct LimitCard: View {
 
                 Divider()
 
+                if model.capabilities.limitEnforcedBySystem {
+                    Label {
+                        Text("macOS holds the battery at the limit, also during sleep.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "moon.zzz")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                } else {
                 HStack {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Sailing buffer")
@@ -56,6 +66,7 @@ struct LimitCard: View {
                         .labelsHidden()
                         .controlSize(.small)
                         .accessibilityValue("\(engine.sailingBuffer) percent")
+                }
                 }
             }
         }

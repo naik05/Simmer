@@ -51,7 +51,7 @@ public enum HelperError: Error, Equatable, CustomStringConvertible {
 ///   resetting, at least a forced discharge is ended).
 /// - The same fail-safe runs when the helper starts and when it is asked to terminate.
 public final class HelperCore: @unchecked Sendable {
-    public static let version = "1.1.0"
+    public static let version = "1.1.1"
     /// The app sends a command at least every 30 s; three misses trip the watchdog.
     public static let watchdogTimeout: TimeInterval = 120
 
