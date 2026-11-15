@@ -38,6 +38,38 @@ struct HelperBanner: View {
     }
 }
 
+/// Shown when the installed helper is older or newer than this app.
+struct HelperUpdateBanner: View {
+    @Environment(AppNavigation.self) private var navigation
+    @Environment(\.openSettings) private var openSettings
+
+    var body: some View {
+        Card {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.orange)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Helper needs an update")
+                        .font(.callout.weight(.semibold))
+                    Text("The installed helper is from a different version of Simmer. Reinstall it so charging control works as expected.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Update Helper…") {
+                        navigation.showSettings(.helper, using: openSettings)
+                    }
+                    .controlSize(.small)
+                    .padding(.top, 2)
+                }
+            }
+        }
+    }
+}
+
 /// The most recent helper error.
 struct ErrorBanner: View {
     var message: String

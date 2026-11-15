@@ -47,6 +47,12 @@ public final class SimmerModel {
     public private(set) var calibrationProgress: Double?
     /// The command most recently accepted by the helper.
     public private(set) var appliedCommand: ChargeCommand?
+    /// `true` when the installed helper is a different version than this app expects.
+    public var helperNeedsUpdate: Bool {
+        if case .connected(let version) = connection { return version != HelperCore.version }
+        return false
+    }
+
     /// Human-readable record of simulated SMC writes (dry-run mode), newest last.
     public private(set) var dryRunLog: [String] = []
 
@@ -320,6 +326,8 @@ public final class SimmerModel {
             command.chargingAllowed = true
             return command
         }
+        // macOS keeps enforcing its own limit while asleep; nothing to change.
+        if capabilities.limitEnforcedBySystem { return command }
         if settings.stopChargingBeforeSleep, engine.state.mode == .normal {
             command.chargingAllowed = false
             command.hold = settings.engine.holdBand

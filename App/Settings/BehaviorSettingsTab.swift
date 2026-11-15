@@ -50,7 +50,7 @@ struct BehaviorSettingsTab: View {
                 : "Available once the helper is installed and the firmware supports its own charge limit."
         case .chwa:
             return "The firmware enforces the limit while Simmer is not running. This Mac only supports a fixed 80 % firmware limit (CHWA), whatever limit you chose."
-        case .bclm, .firmwareBand:
+        case .bclm, .firmwareBand, .nativeLimit:
             return "The firmware enforces your limit while Simmer is not running or the Mac is shut down."
         }
     }

@@ -36,7 +36,11 @@ enum HelperDaemon {
             }
         }
 
-        let hardware = ChargeHardware(smc: smc)
+        // macOS 27 gates the SMC charging keys; there the system's own charge limit is used.
+        let nativeLimit: (any NativeLimitControlling)? =
+            !isDryRun && NativeChargeLimit.isSupportedOnThisSystem ? NativeChargeLimit() : nil
+        let batteryReader = BatteryReader(smc: nil)
+        let hardware = ChargeHardware(smc: smc, nativeLimit: nativeLimit) { batteryReader.read()?.percent }
         let core = HelperCore(hardware: hardware, isDryRun: isDryRun)
         let capabilities = hardware.capabilities
         log.info("capabilities: charging=\(capabilities.charging.rawValue) adapter=\(capabilities.adapter.rawValue) "
