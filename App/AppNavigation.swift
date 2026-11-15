@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 
 enum SettingsTab: String, Hashable, CaseIterable {
-    case general, behavior, schedules, helper, about
+    case general, behavior, schedules, history, helper, about
 }
 
 /// UI-only navigation state shared between the popover and the Settings window.

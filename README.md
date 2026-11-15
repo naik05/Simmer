@@ -58,6 +58,10 @@ Key mapping is determined at runtime based on key availability, never via the ma
 
 Sources for these values: the open-source projects `battery` (actuallymentor) and `batt` (charlie0129), cross-referenced with a read-only probe on a MacBook Pro M5 Pro (macOS 27.2): on that machine, `bfF0/bfD0/bfE0`, `CHIE`, `CH0J`, `ACLC`, and `TB0T–TB2T` are present, while `CHTE`, `CH0B/C`, `CHWA`, and `BCLM` are absent. Because the `bf…` keys are locked even for root on that device, Simmer uses the macOS charge limit there, with `CHIE` for discharging. Voltage, current, cycle count, and capacities are read from `AppleSmartBattery` (IORegistry).
 
+## History
+
+Settings → History charts charge level (with the limit in effect), battery power and temperature for the last 6 hours, 24 hours or 7 days. Simmer records one sample per minute while it runs and keeps a week of them in `~/Library/Application Support/Simmer/history.json`; nothing leaves the Mac. Hours the Mac was asleep or off show as gaps.
+
 ## Safety
 
 - **Fail-Safe:** Upon startup, receiving `SIGTERM`, or losing connection to the app, the helper resets to default behavior (power adapter connected, charging enabled, system-controlled LED). A watchdog triggers the same reset if the app stops sending commands for 120 seconds.
