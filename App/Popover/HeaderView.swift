@@ -12,7 +12,8 @@ struct HeaderView: View {
                 percent: model.snapshot?.percent,
                 limit: model.settings.engine.effectiveLimit,
                 tint: gaugeTint,
-                showsLimit: model.settings.isLimiterEnabled
+                showsLimit: true,
+                isLimiterEnabled: model.settings.isLimiterEnabled
             )
 
             VStack(alignment: .leading, spacing: 5) {
