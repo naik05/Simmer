@@ -223,4 +223,9 @@ final class BatteryReaderTests: XCTestCase {
         let decoded = try JSONDecoder().decode(BatterySnapshot.self, from: JSONEncoder().encode(snapshot))
         XCTAssertEqual(decoded, snapshot)
     }
+
+    func testReadFromHardwareDoesNotCrash() {
+        let reader = BatteryReader(smc: nil)
+        _ = reader.read()
+    }
 }
