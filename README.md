@@ -62,6 +62,10 @@ Sources for these values: the open-source projects `battery` (actuallymentor) an
 
 Settings → History charts charge level (with the limit in effect), battery power and temperature for the last 6 hours, 24 hours or 7 days. Simmer records one sample per minute while it runs and keeps a week of them in `~/Library/Application Support/Simmer/history.json`; nothing leaves the Mac. Hours the Mac was asleep or off show as gaps.
 
+## Battery Health
+
+Settings → Health shows the current health (full charge capacity relative to design capacity) and cycle count, and tracks both over time with one record per day in `~/Library/Application Support/Simmer/health.json`. Once there is enough data it also shows the change since tracking began, cycles per week and wear per 100 cycles. The capacity estimate moves by about a percent from day to day, so the trend only means something over weeks.
+
 ## Safety
 
 - **Fail-Safe:** Upon startup, receiving `SIGTERM`, or losing connection to the app, the helper resets to default behavior (power adapter connected, charging enabled, system-controlled LED). A watchdog triggers the same reset if the app stops sending commands for 120 seconds.

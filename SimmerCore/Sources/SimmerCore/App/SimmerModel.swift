@@ -24,7 +24,10 @@ public enum HelperConnection: Sendable, Equatable {
 @MainActor
 @Observable
 public final class SimmerModel {
-    public static let shared = SimmerModel(history: HistoryStore(directory: HistoryStore.defaultDirectory))
+    public static let shared = SimmerModel(
+        history: HistoryStore(directory: HistoryStore.defaultDirectory),
+        health: HealthStore(directory: HistoryStore.defaultDirectory)
+    )
 
     // MARK: Observable state
 
@@ -86,6 +89,11 @@ public final class SimmerModel {
     /// Bumped whenever a history sample was added, so charts know to reload.
     public private(set) var historyRevision = 0
 
+    /// Daily battery health records. In memory only unless created with a directory.
+    @ObservationIgnored public let health: HealthStore
+    /// Bumped whenever a health record was added or changed.
+    public private(set) var healthRevision = 0
+
     /// Called on the main actor for every engine event (limit reached, top-up finished, …).
     @ObservationIgnored public var onEvent: ((EngineEvent) -> Void)?
 
@@ -117,10 +125,12 @@ public final class SimmerModel {
         readSnapshot: (@MainActor () -> BatterySnapshot?)? = nil,
         makeController: ControllerFactory? = nil,
         readSystemLimit: @escaping @Sendable () -> Int? = { SystemChargeLimit.registered() },
-        history: HistoryStore = HistoryStore(directory: nil)
+        history: HistoryStore = HistoryStore(directory: nil),
+        health: HealthStore = HealthStore(directory: nil)
     ) {
         self.store = store
         self.history = history
+        self.health = health
         self.readSystemLimit = readSystemLimit
         self.tickInterval = tickInterval
         settings = store.loadSettings()
@@ -259,7 +269,11 @@ public final class SimmerModel {
 
         runSchedules(now: now)
         let limitInEffect = settings.isLimiterEnabled ? settings.engine.effectiveLimit : nil
-        if history.record(snapshot, limit: limitInEffect, at: now) { historyRevision += 1 }
+        if history.record(snapshot, limit: limitInEffect, at: now) {
+            historyRevision += 1
+            // Health changes slowly; checking once per history sample is plenty.
+            if health.record(snapshot, at: now) { healthRevision += 1 }
+        }
 
         var command = ChargeCommand.stock
         if settings.isLimiterEnabled {
