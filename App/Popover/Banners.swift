@@ -40,8 +40,12 @@ struct HelperBanner: View {
 
 /// Shown when the installed helper is older or newer than this app.
 struct HelperUpdateBanner: View {
+    @Environment(SimmerModel.self) private var model
     @Environment(AppNavigation.self) private var navigation
     @Environment(\.openSettings) private var openSettings
+    @State private var installer = HelperInstaller()
+    @State private var isUpdating = false
+    @State private var errorMessage: String?
 
     var body: some View {
         Card {
@@ -55,17 +59,48 @@ struct HelperUpdateBanner: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Helper needs an update")
                         .font(.callout.weight(.semibold))
-                    Text("The installed helper is from a different version of Simmer. Reinstall it so charging control works as expected.")
+                    Text("The installed helper is from a different version of Simmer. Update it so charging control works as expected.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Button("Update Helper…") {
-                        navigation.showSettings(.helper, using: openSettings)
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    HStack(spacing: 8) {
+                        Button(isUpdating ? "Updating…" : "Update Helper") { update() }
+                            .disabled(isUpdating)
+                        if isUpdating {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Details…") { navigation.showSettings(.helper, using: openSettings) }
+                                .buttonStyle(.link)
+                        }
                     }
                     .controlSize(.small)
                     .padding(.top, 2)
                 }
             }
+        }
+    }
+
+    /// Reinstalls the helper the same way it was installed, then reconnects.
+    private func update() {
+        isUpdating = true
+        errorMessage = nil
+        Task {
+            do {
+                try await installer.install(installer.isScriptInstalled ? .script : .serviceManagement)
+            } catch let error as HelperInstaller.InstallError {
+                // An empty description means the password prompt was cancelled.
+                errorMessage = error.description.isEmpty ? nil : error.description
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            await model.reconnect()
+            isUpdating = false
         }
     }
 }

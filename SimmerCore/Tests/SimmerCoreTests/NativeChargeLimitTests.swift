@@ -134,18 +134,59 @@ final class NativeChargeLimitTests: XCTestCase {
         XCTAssertEqual(native.calls, ["set 80"])
     }
 
-    func testHoldingPinsTheLimitToTheCurrentLevelWithoutDraining() throws {
+    func testHoldingNeverSetsALimitBelowTheCurrentLevel() throws {
         let native = RecordingNativeLimit()
         let percent = Percent(100)
         let hardware = hardware(native, percent: percent)
         let hold = ChargeCommand(chargingAllowed: false, hold: ChargeBand(upper: 80, lower: 75))
 
+        // Above the limit (after a top-up): hold where it is, macOS would drain otherwise.
         try hardware.apply(hold)
+        percent.value = 91
+        try hardware.apply(hold)
+        // At or below the limit: macOS keeps the battery at the limit itself.
         percent.value = 78
         try hardware.apply(hold)
-        percent.value = 4
-        try hardware.apply(hold)
-        XCTAssertEqual(native.calls, ["set 99", "set 78", "set 10"])
+        XCTAssertEqual(native.calls, ["set 99", "set 91", "set 80"])
+    }
+
+    func testStoppingRightNowUsesTheCurrentLevelAsTheBound() throws {
+        // Heat protection and the calibration rest pass the current level as the bound.
+        let native = RecordingNativeLimit()
+        try hardware(native, percent: Percent(62))
+            .apply(ChargeCommand(chargingAllowed: false, hold: ChargeBand(upper: 62, lower: 10)))
+        XCTAssertEqual(native.calls, ["set 62"])
+    }
+
+    func testNativeTargetRules() {
+        let band = ChargeBand(upper: 80, lower: 75)
+        XCTAssertEqual(ChargeHardware.nativeTarget(chargingAllowed: true, hold: band, percent: 50), 80)
+        XCTAssertNil(ChargeHardware.nativeTarget(chargingAllowed: true, hold: ChargeBand(upper: 100, lower: 100), percent: 50))
+        XCTAssertEqual(ChargeHardware.nativeTarget(chargingAllowed: false, hold: band, percent: nil), 80)
+        XCTAssertEqual(ChargeHardware.nativeTarget(chargingAllowed: false, hold: band, percent: 100), 99)
+    }
+
+    func testParsesTheRegisteredSystemLimit() {
+        let output = """
+        Battery level limits:
+        (
+                {
+                Terminated = 0;
+                chargeSocLimitDrain = 1;
+                chargeSocLimitOwner = 230;
+                chargeSocLimitReason = manualChargeLimit;
+                chargeSocLimitSoc = 70;
+            },
+                {
+                Terminated = 0;
+                chargeSocLimitReason = manualChargeLimit;
+                chargeSocLimitSoc = 70;
+            }
+        )
+        """
+        XCTAssertEqual(SystemChargeLimit.parse(output), 70)
+        XCTAssertNil(SystemChargeLimit.parse("Battery level limits:\n(\n)\n"))
+        XCTAssertNil(SystemChargeLimit.parse(""))
     }
 
     func testTopUpTurnsTheSystemLimitOff() throws {

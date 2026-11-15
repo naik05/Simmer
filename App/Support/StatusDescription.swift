@@ -15,6 +15,12 @@ enum StatusDescription {
         }
 
         let limit = Format.percent(settings.engine.effectiveLimit)
+        let isPlainLimiter = model.engineState.mode == .normal && model.activity != .heatPaused
+        if isPlainLimiter, model.activity != .onBattery, let pending = model.pendingSystemTarget {
+            return pending >= 100
+                ? "Waiting for macOS to lift the limit"
+                : "Waiting for macOS to apply \(Format.percent(pending))"
+        }
         if model.activity == .heatPaused {
             guard let celsius = snapshot.temperatureC else { return "Paused – battery too warm" }
             return "Paused – battery \(Format.temperature(celsius: celsius, unit: settings.temperatureUnit))"
@@ -32,6 +38,10 @@ enum StatusDescription {
         case .normal:
             switch model.activity {
             case .holding:
+                if snapshot.percent > settings.engine.effectiveLimit {
+                    // Nothing drains the battery on its own; say where it really is.
+                    return "Holding at \(Format.percent(snapshot.percent)) · above the \(limit) limit"
+                }
                 return model.capabilities.holdsByDischarging
                     ? "Holding below \(limit) · running on battery"
                     : "Holding at \(limit) · running on adapter"

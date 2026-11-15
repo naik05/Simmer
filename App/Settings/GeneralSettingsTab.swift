@@ -26,10 +26,9 @@ struct GeneralSettingsTab: View {
                     LabeledContent("Sailing buffer") {
                         Text(Format.percent(engine.sailingBuffer)).monospacedDigit()
                     }
-                    SettingsNote(engine.sailingBuffer == 0
-                        ? "Charging resumes as soon as the battery drops below the limit."
-                        : "After reaching the limit, charging resumes at \(Format.percent(engine.resumeLevel)).")
+                    SettingsNote(sailingNote(engine))
                 }
+                .disabled(model.capabilities.limitEnforcedBySystem)
             }
 
             Section("Heat protection") {
@@ -112,6 +111,15 @@ struct GeneralSettingsTab: View {
             }
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+
+    private func sailingNote(_ engine: EngineConfig) -> String {
+        if model.capabilities.limitEnforcedBySystem {
+            return "Not used on this Mac: macOS holds the battery right at the limit itself."
+        }
+        return engine.sailingBuffer == 0
+            ? "Charging resumes as soon as the battery drops below the limit."
+            : "After reaching the limit, charging resumes at \(Format.percent(engine.resumeLevel))."
     }
 }
 

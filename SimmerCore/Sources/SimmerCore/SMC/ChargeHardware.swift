@@ -333,21 +333,24 @@ public final class ChargeHardware: Sendable {
 
     // MARK: Helpers
 
-    /// Charging allowed: the system limit is the hold band's upper bound (macOS stops there
-    /// by itself, also during sleep), or off for 100 %. Charging not allowed: the limit is
-    /// set to the current level, so charging stops now and the Mac runs from the adapter
-    /// without macOS draining the battery down to a lower target.
+    /// The system charge limit that realises a command, or `nil` for "limit off".
+    ///
+    /// Charging allowed: the hold band's upper bound – macOS stops there by itself, also
+    /// during sleep – or off for 100 %. Charging not allowed: the same bound, but never
+    /// below the current level. macOS drains the battery down to a lower limit, so a
+    /// battery above the bound (after a top-up) is held where it is instead; engine states
+    /// that must stop charging right now (heat protection, calibration rest) pass the
+    /// current level as the bound.
+    public static func nativeTarget(chargingAllowed: Bool, hold: ChargeBand, percent: Int?) -> Int? {
+        let upper = hold.clamped.upper
+        if chargingAllowed { return upper >= 100 ? nil : upper }
+        return min(max(upper, percent ?? upper, 10), 99)
+    }
+
     private func setNativeLimit(chargingAllowed: Bool, hold: ChargeBand) throws {
         guard let nativeLimit else { throw SMCError.unsupported("native charge limit") }
-        var target = hold.clamped.upper
-        if !chargingAllowed, let percent = batteryPercent() {
-            target = max(percent, 10)
-        }
-        if chargingAllowed, target >= 100 {
-            try nativeLimit.disable()
-        } else {
-            try nativeLimit.setLimit(min(target, 99))
-        }
+        let target = Self.nativeTarget(chargingAllowed: chargingAllowed, hold: hold, percent: batteryPercent())
+        if let target { try nativeLimit.setLimit(target) } else { try nativeLimit.disable() }
     }
 
     private func writeFirmwareBand(_ band: ChargeBand) throws {

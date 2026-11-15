@@ -47,6 +47,31 @@ public final class SimmerModel {
     public private(set) var calibrationProgress: Double?
     /// The command most recently accepted by the helper.
     public private(set) var appliedCommand: ChargeCommand?
+    /// The charge limit macOS has registered, on Macs where macOS enforces the limit.
+    /// `.some(nil)` means "read, and no limit is active"; `nil` means "not read yet".
+    public private(set) var systemLimit: Int??
+
+    /// The target macOS has been asked for but has not registered yet (it can take a few
+    /// minutes while charging). `nil` when nothing is pending or macOS does not enforce
+    /// the limit on this Mac. `100` stands for "limit off".
+    public var pendingSystemTarget: Int? {
+        guard capabilities.limitEnforcedBySystem, let applied = appliedCommand,
+              let percent = snapshot?.percent, let registered = systemLimit
+        else { return nil }
+        let expected = ChargeHardware.nativeTarget(
+            chargingAllowed: applied.chargingAllowed, hold: applied.hold, percent: percent
+        )
+        return expected == registered ? nil : expected ?? 100
+    }
+
+    /// The engine configuration actually in effect. Where macOS enforces the limit it
+    /// holds the battery right at it, so the sailing buffer does not apply.
+    public var effectiveEngineConfig: EngineConfig {
+        var config = settings.engine
+        if capabilities.limitEnforcedBySystem { config.sailingBuffer = 0 }
+        return config
+    }
+
     /// `true` when the installed helper is a different version than this app expects.
     public var helperNeedsUpdate: Bool {
         if case .connected(let version) = connection { return version != HelperCore.version }
@@ -68,6 +93,7 @@ public final class SimmerModel {
     @ObservationIgnored private let readSnapshot: @MainActor () -> BatterySnapshot?
     @ObservationIgnored private let makeController: ControllerFactory
     @ObservationIgnored private let tickInterval: Duration
+    @ObservationIgnored private let readSystemLimit: @Sendable () -> Int?
     @ObservationIgnored private var controller: (any ChargeControlling)?
     @ObservationIgnored private var engine: ChargeEngine
     @ObservationIgnored private var loopTask: Task<Void, Never>?
@@ -76,6 +102,7 @@ public final class SimmerModel {
     @ObservationIgnored private var isSleeping = false
     @ObservationIgnored private var lastSentAt = Date.distantPast
     @ObservationIgnored private var lastConnectAttempt = Date.distantPast
+    @ObservationIgnored private var lastSystemLimitRead = Date.distantPast
     @ObservationIgnored private var lastScheduleCheck = Date()
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
 
@@ -83,9 +110,11 @@ public final class SimmerModel {
         store: SettingsStore = SettingsStore(),
         tickInterval: Duration = .seconds(5),
         readSnapshot: (@MainActor () -> BatterySnapshot?)? = nil,
-        makeController: ControllerFactory? = nil
+        makeController: ControllerFactory? = nil,
+        readSystemLimit: @escaping @Sendable () -> Int? = { SystemChargeLimit.registered() }
     ) {
         self.store = store
+        self.readSystemLimit = readSystemLimit
         self.tickInterval = tickInterval
         settings = store.loadSettings()
         let state = store.loadEngineState()
@@ -224,7 +253,7 @@ public final class SimmerModel {
 
         var command = ChargeCommand.stock
         if settings.isLimiterEnabled {
-            let output = engine.tick(snapshot: snapshot, config: settings.engine, now: now)
+            let output = engine.tick(snapshot: snapshot, config: effectiveEngineConfig, now: now)
             activity = output.activity
             command = isSleeping ? sleepCommand(from: output.command) : output.command
             output.events.forEach { onEvent?($0) }
@@ -232,8 +261,9 @@ public final class SimmerModel {
             activity = .unmanaged
         }
         publishEngineState()
-        calibrationProgress = engine.calibrationProgress(snapshot: snapshot, config: settings.engine, now: now)
+        calibrationProgress = engine.calibrationProgress(snapshot: snapshot, config: effectiveEngineConfig, now: now)
         await send(command, now: now)
+        await refreshSystemLimit()
     }
 
     private func connect(now: Date = Date()) async {
@@ -271,6 +301,20 @@ public final class SimmerModel {
         } catch {
             lastError = String(describing: error)
         }
+    }
+
+    private func refreshSystemLimit() async {
+        guard capabilities.limitEnforcedBySystem, connection.isUsable else {
+            systemLimit = nil
+            return
+        }
+        // Reading spawns `pmset`; every few ticks is plenty.
+        let now = Date()
+        guard systemLimit == nil || now.timeIntervalSince(lastSystemLimitRead) >= 12 else { return }
+        lastSystemLimitRead = now
+        let read = readSystemLimit
+        let value = await Task.detached { read() }.value
+        if systemLimit != .some(value) { systemLimit = .some(value) }
     }
 
     private func runSchedules(now: Date) {
@@ -330,7 +374,7 @@ public final class SimmerModel {
         if capabilities.limitEnforcedBySystem { return command }
         if settings.stopChargingBeforeSleep, engine.state.mode == .normal {
             command.chargingAllowed = false
-            command.hold = settings.engine.holdBand
+            command.hold = effectiveEngineConfig.holdBand
         }
         return command
     }
