@@ -14,7 +14,7 @@ enum StatusDescription {
         case .connected, .dryRun: break
         }
 
-        let limit = Format.percent(settings.engine.effectiveLimit)
+        let limit = Format.percent(model.effectiveLimit)
         let isPlainLimiter = model.engineState.mode == .normal && model.activity != .heatPaused
         if isPlainLimiter, model.activity != .onBattery, let pending = model.pendingSystemTarget {
             return pending >= 100
@@ -38,7 +38,7 @@ enum StatusDescription {
         case .normal:
             switch model.activity {
             case .holding:
-                if snapshot.percent > settings.engine.effectiveLimit {
+                if snapshot.percent > model.effectiveLimit {
                     // Nothing drains the battery on its own; say where it really is.
                     return "Holding at \(Format.percent(snapshot.percent)) · above the \(limit) limit"
                 }

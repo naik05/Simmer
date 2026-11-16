@@ -32,6 +32,18 @@ struct LimitCard: View {
                 .controlSize(.small)
                 .accessibilityValue("\(engine.effectiveLimit) percent")
 
+                if let rule = model.activeSituationRule {
+                    Label {
+                        Text("\(rule.condition.summary): limit is \(Format.percent(rule.effectiveLimit)) for now.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: rule.condition.symbolName)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .accessibilityElement(children: .combine)
+                }
+
                 Divider()
 
                 if model.capabilities.limitEnforcedBySystem {

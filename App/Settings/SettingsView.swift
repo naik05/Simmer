@@ -15,7 +15,7 @@ struct SettingsView: View {
                 .tabItem { Label("Behavior", systemImage: "slider.horizontal.3") }
                 .tag(SettingsTab.behavior)
             SchedulesSettingsTab()
-                .tabItem { Label("Schedules", systemImage: "calendar.badge.clock") }
+                .tabItem { Label("Automation", systemImage: "calendar.badge.clock") }
                 .tag(SettingsTab.schedules)
             HistorySettingsTab()
                 .tabItem { Label("History", systemImage: "chart.xyaxis.line") }
@@ -37,7 +37,7 @@ struct SettingsView: View {
         switch navigation.settingsTab {
         case .general: 640
         case .behavior: 430
-        case .schedules: 520
+        case .schedules: 600
         case .history: 720
         case .health: 620
         case .helper: 640

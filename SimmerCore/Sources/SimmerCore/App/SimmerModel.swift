@@ -67,10 +67,24 @@ public final class SimmerModel {
         return expected == registered ? nil : expected ?? 100
     }
 
+    /// Adapter and displays as last observed.
+    public private(set) var situation = Situation()
+
+    /// The situation rule that currently overrides the normal limit, if any.
+    public var activeSituationRule: SituationRule? {
+        settings.situationRules.active(in: situation)
+    }
+
+    /// The charge limit actually in effect: a matching situation rule's, else the normal one.
+    public var effectiveLimit: Int {
+        activeSituationRule?.effectiveLimit ?? settings.engine.effectiveLimit
+    }
+
     /// The engine configuration actually in effect. Where macOS enforces the limit it
     /// holds the battery right at it, so the sailing buffer does not apply.
     public var effectiveEngineConfig: EngineConfig {
         var config = settings.engine
+        config.limit = effectiveLimit
         if capabilities.limitEnforcedBySystem { config.sailingBuffer = 0 }
         return config
     }
@@ -107,6 +121,7 @@ public final class SimmerModel {
     @ObservationIgnored private let makeController: ControllerFactory
     @ObservationIgnored private let tickInterval: Duration
     @ObservationIgnored private let readSystemLimit: @Sendable () -> Int?
+    @ObservationIgnored private let countExternalDisplays: @MainActor () -> Int
     @ObservationIgnored private var controller: (any ChargeControlling)?
     @ObservationIgnored private var engine: ChargeEngine
     @ObservationIgnored private var loopTask: Task<Void, Never>?
@@ -115,6 +130,7 @@ public final class SimmerModel {
     @ObservationIgnored private var isSleeping = false
     @ObservationIgnored private var lastSentAt = Date.distantPast
     @ObservationIgnored private var lastConnectAttempt = Date.distantPast
+    @ObservationIgnored private var lastConfiguredPolicy: FailSafePolicy?
     @ObservationIgnored private var lastSystemLimitRead = Date.distantPast
     @ObservationIgnored private var lastScheduleCheck = Date()
     @ObservationIgnored private var observers: [any NSObjectProtocol] = []
@@ -126,9 +142,17 @@ public final class SimmerModel {
         makeController: ControllerFactory? = nil,
         readSystemLimit: @escaping @Sendable () -> Int? = { SystemChargeLimit.registered() },
         history: HistoryStore = HistoryStore(directory: nil),
-        health: HealthStore = HealthStore(directory: nil)
+        health: HealthStore = HealthStore(directory: nil),
+        countExternalDisplays: (@MainActor () -> Int)? = nil
     ) {
         self.store = store
+        self.countExternalDisplays = countExternalDisplays ?? {
+            NSScreen.screens.count { screen in
+                guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+                else { return false }
+                return CGDisplayIsBuiltin(number.uint32Value) == 0
+            }
+        }
         self.history = history
         self.health = health
         self.readSystemLimit = readSystemLimit
@@ -267,8 +291,9 @@ public final class SimmerModel {
             return
         }
 
+        updateSituation(from: snapshot)
         runSchedules(now: now)
-        let limitInEffect = settings.isLimiterEnabled ? settings.engine.effectiveLimit : nil
+        let limitInEffect = settings.isLimiterEnabled ? effectiveLimit : nil
         if history.record(snapshot, limit: limitInEffect, at: now) {
             historyRevision += 1
             // Health changes slowly; checking once per history sample is plenty.
@@ -286,6 +311,12 @@ public final class SimmerModel {
         }
         publishEngineState()
         calibrationProgress = engine.calibrationProgress(snapshot: snapshot, config: effectiveEngineConfig, now: now)
+        // A situation rule can change the limit that should be kept when Simmer quits.
+        if connection.isUsable, let controller, failSafePolicy != lastConfiguredPolicy {
+            let policy = failSafePolicy
+            lastConfiguredPolicy = policy
+            try? await controller.configure(policy)
+        }
         await send(command, now: now)
         await refreshSystemLimit()
     }
@@ -298,7 +329,8 @@ public final class SimmerModel {
         self.controller = controller
         do {
             let handshake = try await controller.handshake()
-            try await controller.configure(settings.failSafePolicy)
+            lastConfiguredPolicy = failSafePolicy
+            try await controller.configure(failSafePolicy)
             capabilities = handshake.capabilities
             connection = handshake.isDryRun ? .dryRun : .connected(version: handshake.version)
             lastError = nil
@@ -341,6 +373,19 @@ public final class SimmerModel {
         if systemLimit != .some(value) { systemLimit = .some(value) }
     }
 
+    private func updateSituation(from snapshot: BatterySnapshot) {
+        var observed = Situation(
+            adapterWatts: snapshot.adapterWatts.map { Int($0.rounded()) },
+            externalDisplayCount: countExternalDisplays()
+        )
+        // While Simmer has the adapter disconnected its wattage is not reported; keep the
+        // last one, or an adapter rule would switch itself off mid-discharge.
+        if observed.adapterWatts == nil, adapterIsDisconnectedBySimmer {
+            observed.adapterWatts = situation.adapterWatts
+        }
+        if observed != situation { situation = observed }
+    }
+
     private func runSchedules(now: Date) {
         let due = Scheduler.dueRules(settings.schedules, after: lastScheduleCheck, upTo: now)
         lastScheduleCheck = now
@@ -364,8 +409,9 @@ public final class SimmerModel {
             Task { await reconnect() }
             return
         }
-        if settings.failSafePolicy != old.failSafePolicy, connection.isUsable, let controller {
-            let policy = settings.failSafePolicy
+        if failSafePolicy != lastConfiguredPolicy, connection.isUsable, let controller {
+            let policy = failSafePolicy
+            lastConfiguredPolicy = policy
             Task { try? await controller.configure(policy) }
         }
         refresh()
@@ -375,6 +421,13 @@ public final class SimmerModel {
         let time = Date().formatted(date: .omitted, time: .standard)
         dryRunLog.append("\(time)  \(write.key) ← \(write.hex)")
         if dryRunLog.count > 200 { dryRunLog.removeFirst(dryRunLog.count - 200) }
+    }
+
+    /// What the helper should leave behind; a kept limit is the one in effect right now.
+    private var failSafePolicy: FailSafePolicy {
+        var policy = settings.failSafePolicy
+        if policy.persistentBand != nil { policy.persistentBand = effectiveEngineConfig.holdBand }
+        return policy
     }
 
     private var adapterIsDisconnectedBySimmer: Bool {

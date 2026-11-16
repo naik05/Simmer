@@ -58,6 +58,16 @@ Key mapping is determined at runtime based on key availability, never via the ma
 
 Sources for these values: the open-source projects `battery` (actuallymentor) and `batt` (charlie0129), cross-referenced with a read-only probe on a MacBook Pro M5 Pro (macOS 27.2): on that machine, `bfF0/bfD0/bfE0`, `CHIE`, `CH0J`, `ACLC`, and `TB0T–TB2T` are present, while `CHTE`, `CH0B/C`, `CHWA`, and `BCLM` are absent. Because the `bf…` keys are locked even for root on that device, Simmer uses the macOS charge limit there, with `CHIE` for discharging. Voltage, current, cycle count, and capacities are read from `AppleSmartBattery` (IORegistry).
 
+## Situation Rules
+
+Settings → Automation → Situations lets the charge limit depend on where the Mac is used. A rule pairs a condition with a limit; the first enabled rule that matches overrides the normal limit, and the popover says which one is active. Conditions use only what Simmer can observe without asking for any permission:
+
+- a power adapter of a given wattage is connected (e.g. the 65 W charger at the desk vs. a travel charger),
+- an external display is connected,
+- plugged in without an external display.
+
+Adapters are told apart by rated wattage only: third-party USB-C chargers report no serial number, so two chargers of the same wattage count as the same. Calendar- or Wi-Fi-based rules would be possible but need Calendar or Location permission and are not implemented.
+
 ## History
 
 Settings → History charts charge level (with the limit in effect), battery power and temperature for the last 6 hours, 24 hours or 7 days. Simmer records one sample per minute while it runs and keeps a week of them in `~/Library/Application Support/Simmer/history.json`; nothing leaves the Mac. Hours the Mac was asleep or off show as gaps.
