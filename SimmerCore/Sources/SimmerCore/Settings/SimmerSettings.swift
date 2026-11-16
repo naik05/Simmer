@@ -33,6 +33,8 @@ public struct SimmerSettings: Codable, Sendable, Equatable {
     /// Simulate SMC writes in-process instead of talking to the privileged helper.
     public var dryRun = false
     public var schedules: [ScheduleRule] = []
+    /// Situation-dependent limits, in priority order.
+    public var situationRules: [SituationRule] = []
 
     public init() {}
 
@@ -53,6 +55,8 @@ public struct SimmerSettings: Codable, Sendable, Equatable {
             ?? defaults.notificationsEnabled
         dryRun = try values.decodeIfPresent(Bool.self, forKey: .dryRun) ?? defaults.dryRun
         schedules = try values.decodeIfPresent([ScheduleRule].self, forKey: .schedules) ?? defaults.schedules
+        situationRules = (try? values.decodeIfPresent([SituationRule].self, forKey: .situationRules))
+            ?? defaults.situationRules
     }
 
     /// What the helper should do when the app goes away.

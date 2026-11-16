@@ -19,7 +19,10 @@ final class EventNotifier {
 
     func handle(_ event: EngineEvent) {
         guard model.settings.notificationsEnabled else { return }
-        let message = Self.message(for: event, settings: model.settings)
+        // Notifications should name the limit in effect, which a situation rule may set.
+        var settings = model.settings
+        settings.engine.limit = model.effectiveLimit
+        let message = Self.message(for: event, settings: settings)
         Task { await NotificationPoster.post(title: message.title, body: message.body) }
     }
 

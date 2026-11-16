@@ -10,7 +10,7 @@ struct HeaderView: View {
         HStack(spacing: 14) {
             ChargeGauge(
                 percent: model.snapshot?.percent,
-                limit: model.settings.engine.effectiveLimit,
+                limit: model.effectiveLimit,
                 tint: gaugeTint,
                 showsLimit: true,
                 isLimiterEnabled: model.settings.isLimiterEnabled
@@ -64,7 +64,7 @@ struct HeaderView: View {
         guard let snapshot = model.snapshot, model.connection.isUsable || model.activity == .onBattery else {
             return nil
         }
-        let config = model.settings.engine
+        let config = model.effectiveEngineConfig
         let system = snapshot.timeRemaining.flatMap { $0 > 0 ? $0 : nil }
         switch model.activity {
         case .charging:

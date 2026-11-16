@@ -39,7 +39,7 @@ struct StartDischargeIntent: AppIntent {
         try IntentSupport.requireLimiter(model)
         guard model.capabilities.canDischarge else { throw SimmerIntentError.dischargeUnavailable }
         model.startDischarge()
-        return .result(dialog: "Discharging to \(model.settings.engine.effectiveLimit) %.")
+        return .result(dialog: "Discharging to \(model.effectiveLimit) %.")
     }
 }
 
@@ -52,7 +52,7 @@ struct StopDischargeIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let model = await IntentSupport.readyModel()
         model.returnToNormal()
-        return .result(dialog: "Back to holding at \(model.settings.engine.effectiveLimit) %.")
+        return .result(dialog: "Back to holding at \(model.effectiveLimit) %.")
     }
 }
 

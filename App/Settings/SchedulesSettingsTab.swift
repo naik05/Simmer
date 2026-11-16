@@ -54,6 +54,8 @@ struct SchedulesSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            SituationRulesSection()
         }
         .formStyle(.grouped)
         .animation(.snappy(duration: 0.25), value: expanded)
